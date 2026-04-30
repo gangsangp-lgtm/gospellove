@@ -1,8 +1,15 @@
+
+cat > /home/claude/malssumnamu/src/App.js << 'ENDOFFILE'
 import { useState, useEffect } from "react";
 
-const TODAY = new Date();
-const TODAY_STR = TODAY.toISOString().slice(0, 10);
-const TODAY_KR = `${TODAY.getFullYear()}년 ${TODAY.getMonth() + 1}월 ${TODAY.getDate()}일`;
+// ── 날짜는 앱이 열릴 때마다 새로 계산 (빌드 시점 고정 방지) ──
+function getToday() {
+  const d = new Date();
+  const str = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const kr = `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
+  return { str, kr };
+}
+
 const API_KEY = process.env.REACT_APP_ANTHROPIC_API_KEY || "";
 
 async function ai(prompt, tokens = 800) {
@@ -36,6 +43,8 @@ export default function App() {
   const [tab, setTab] = useState(0);
   const [day, setDay] = useState(null);
   const [dayLoading, setDayLoading] = useState(true);
+  const [todayStr, setTodayStr] = useState("");
+  const [todayKr, setTodayKr] = useState("");
   const [qt, setQt] = useState(null);
   const [qtLoading, setQtLoading] = useState(false);
   const [ans, setAns] = useState({ o: "", a: "", p: "" });
@@ -48,15 +57,41 @@ export default function App() {
   const streak = parseInt(localStorage.getItem("qt_streak") || "1");
 
   useEffect(() => {
-    const cacheKey = `qt_day_${TODAY_STR}`;
+    // 앱이 열릴 때마다 날짜를 새로 계산해요
+    const { str, kr } = getToday();
+    setTodayStr(str);
+    setTodayKr(kr);
+
+    const cacheKey = `qt_day_${str}`;
+
+    // 오늘 날짜 캐시가 있으면 바로 사용, 없으면 AI 호출
     const cached = localStorage.getItem(cacheKey);
     if (cached) {
-      try { setDay(JSON.parse(cached)); setDayLoading(false); return; }
-      catch(e) { localStorage.removeItem(cacheKey); }
+      try {
+        const parsed = JSON.parse(cached);
+        // 캐시의 날짜가 오늘과 같은지 한번 더 확인
+        if (parsed._date === str) {
+          setDay(parsed);
+          setDayLoading(false);
+          return;
+        }
+      } catch(e) {}
+      localStorage.removeItem(cacheKey);
     }
-    ai(`날짜:${TODAY_STR}. 한국 개신교 교회력 기준 초등학생 큐티. 2026부활절=4월5일.
+
+    // 오래된 캐시 정리 (어제 것 등 삭제)
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith("qt_day_") && k !== cacheKey) localStorage.removeItem(k);
+    });
+
+    ai(`날짜:${str}. 한국 개신교 교회력 기준 초등학생 큐티. 2026부활절=4월5일.
 JSON만(다른말금지):{"season":"절기","seasonEmoji":"이모지","seasonColor":"#hex","passage":"구절","theme":"주제(짧게)","verse":"새번역본문2~3절","explain":"초등2~4학년설명3문장"}`, 600)
-      .then(t => { const p = JSON.parse(t); localStorage.setItem(cacheKey, JSON.stringify(p)); setDay(p); })
+      .then(t => {
+        const parsed = JSON.parse(t);
+        parsed._date = str; // 날짜 태그 저장
+        localStorage.setItem(cacheKey, JSON.stringify(parsed));
+        setDay(parsed);
+      })
       .catch(() => setDay(FALLBACK))
       .finally(() => setDayLoading(false));
   }, []);
@@ -78,7 +113,7 @@ JSON만:{"observe":"관찰질문","apply":"적용질문","prayer":"기도예시"
 4지선다3문제(말씀이해/말씀의미/삶적용). JSON만:
 [{"type":"말씀이해","q":"문제","choices":["선택1","선택2","선택3","선택4"],"answer":0,"hint":"힌트"},
 {"type":"말씀의미","q":"문제","choices":["선택1","선택2","선택3","선택4"],"answer":1,"hint":"힌트"},
-{"type":"삶적용","q":"문제","choices":["선택1","선택2","선택3","선택4"],"answer":2,"hint":"힌트"}]`, 700)
+{"type":"삶적용","q":"문제","choices":["선택1","선택2","선택3","선택4"],"answer":2,"힌트":"힌트"}]`, 700)
         .then(t => setQuiz(JSON.parse(t)))
         .catch(() => setQuiz([
           {type:"말씀이해",q:`${day.passage}에서 예수님은 자신을 뭐라 하셨나요?`,choices:["선한 목자","좋은 선생님","위대한 왕","친절한 의사"],answer:0,hint:"'나는 선한 목자다'라고 하셨어요!"},
@@ -110,7 +145,7 @@ JSON만:{"observe":"관찰질문","apply":"적용질문","prayer":"기도예시"
           <b style={{fontFamily:"Jua,sans-serif",color:"white",fontSize:21}}>🌱 말씀 나무</b>
           <span style={{background:"rgba(255,255,255,.2)",color:"white",padding:"5px 11px",borderRadius:18,fontSize:13,fontWeight:700}}>🔥 {streak}일째</span>
         </div>
-        <div style={{color:"rgba(255,255,255,.8)",fontSize:13,marginBottom:4}}>{TODAY_KR}</div>
+        <div style={{color:"rgba(255,255,255,.8)",fontSize:13,marginBottom:4}}>{todayKr}</div>
         <div style={{display:"inline-block",background:"rgba(255,255,255,.22)",color:"white",padding:"3px 11px",borderRadius:10,fontSize:12,fontWeight:700,marginBottom:8}}>
           {day ? `${day.seasonEmoji} ${day.season}` : "⏳ 불러오는 중..."}
         </div>
@@ -241,3 +276,5 @@ function Spin({c,msg}){
     </div>
   );
 }
+ENDOFFILE
+echo "Done"
